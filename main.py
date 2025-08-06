@@ -634,11 +634,11 @@ def main():
         except Exception as e:
             logger.error(f"Ошибка при polling: {e}")
 
-    # === Ключевое исправление: не закрываем loop! ===
+    # === Финальное решение: не трогаем loop напрямую ===
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # Если loop уже запущен (на Railway) — добавляем задачу
+            # Если loop уже запущен (на Railway) — просто добавляем задачу
             loop.create_task(run_bot())
             logger.info("✅ Задача бота добавлена в уже запущенный event loop")
         else:
