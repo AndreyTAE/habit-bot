@@ -11,7 +11,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
-    ApplicationBuilder
+    JobQueue
 )
 import logging
 
@@ -230,7 +230,7 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 🔐 Проверка job_queue
     if context.job_queue is None:
-        await query.edit_message_text("❌ Ошибка: система напоминаний не доступна.")
+        await query.edit_message_text("❌ Ошибка: система напоминаний временно недоступна.")
         return
 
     job_name = f"reminder_{user_id}"
@@ -253,14 +253,12 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time_str = data.replace("remind_", "")
     try:
         hours, minutes = map(int, time_str.split(":"))
-        # Устанавливаем новое
         context.job_queue.run_daily(
             send_daily_reminder,
             time=datetime_time(hour=hours, minute=minutes),
             data={"user_id": user_id},
             name=job_name
         )
-        # Сохраняем
         conn = await asyncpg.connect(DATABASE_URL)
         await conn.execute("UPDATE users SET reminder_time = $1 WHERE user_id = $2", time_str, user_id)
         await conn.close()
@@ -411,7 +409,7 @@ def main():
         loop = asyncio.get_running_loop()
         if loop.is_running():
             loop.create_task(run_bot())
-            logger.info("✅ Задача добавлена в запущенный event loop")
+            logger.info("✅ Задача добавлена в уже запущенный event loop")
         else:
             loop.run_until_complete(run_bot())
     except RuntimeError:
