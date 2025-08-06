@@ -1,17 +1,23 @@
 # main.py
 # Telegram-бот для марафонов привычек
 # Запускается на Railway.app с PostgreSQL
-# Использует asyncpg, python-telegram-bot v20.3
+# Использует asyncpg и python-telegram-bot v20.3
 
 import os
 import asyncio
 import logging
 import re
-import asyncpg  # ✅ Добавьте эту строку!
+import asyncpg  # ✅ Обязательный импорт
 from datetime import datetime, time as datetime_time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
 
 # === Настройки ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -19,7 +25,6 @@ DATABASE_URL = os.getenv("DATABASE_URL")  # Автоматически от Post
 
 if not BOT_TOKEN:
     raise EnvironmentError("❌ Переменная окружения BOT_TOKEN не установлена")
-
 if not DATABASE_URL:
     raise EnvironmentError("❌ Переменная окружения DATABASE_URL не установлена")
 
@@ -45,7 +50,7 @@ MARATHON_TASKS = {
         "Обсуди прочитанное с кем-то",
         "Прочитай биографию интересного человека",
         "Сделай заметки во время чтения",
-        "Прочитай 30 минут в тишине",
+        "Прочитай в тишине 30 минут",
         "Найди книгу по новой теме",
         "Прочитай вслух 10 минут",
         "Прочитай статью на научную тему",
@@ -102,8 +107,6 @@ MARATHON_TASKS = {
 async def init_db():
     try:
         conn = await asyncpg.connect(DATABASE_URL)
-
-        # Таблица пользователей
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id BIGINT PRIMARY KEY,
@@ -116,8 +119,6 @@ async def init_db():
                 reminder_time TEXT
             )
         ''')
-
-        # Таблица марафонов
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS marathons (
                 id SERIAL PRIMARY KEY,
@@ -127,8 +128,6 @@ async def init_db():
                 price INTEGER DEFAULT 0
             )
         ''')
-
-        # Добавляем марафоны, если их нет
         count = await conn.fetchval("SELECT COUNT(*) FROM marathons")
         if count == 0:
             marathons = [
@@ -142,7 +141,6 @@ async def init_db():
                     INSERT INTO marathons (name, description, is_premium, price)
                     VALUES ($1, $2, $3, $4)
                 ''', name, desc, is_premium, price)
-
         await conn.close()
         logger.info("✅ База данных инициализирована в PostgreSQL")
     except Exception as e:
@@ -230,7 +228,6 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = await asyncpg.connect(DATABASE_URL)
 
-    # Удаляем старое напоминание
     job_name = f"reminder_{user_id}"
     current_jobs = context.job_queue.get_jobs_by_name(job_name)
     for job in current_jobs:
@@ -251,7 +248,6 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time_str = data.replace("remind_", "")
     hours, minutes = map(int, time_str.split(":"))
 
-    # Устанавливаем новое
     context.job_queue.run_daily(
         send_daily_reminder,
         time=datetime_time(hour=hours, minute=minutes),
@@ -295,12 +291,10 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
     time_str = f"{hours:02d}:{minutes:02d}"
     job_name = f"reminder_{user_id}"
 
-    # Удаляем старое
     current_jobs = context.job_queue.get_jobs_by_name(job_name)
     for job in current_jobs:
         job.schedule_removal()
 
-    # Устанавливаем новое
     context.job_queue.run_daily(
         send_daily_reminder,
         time=datetime_time(hour=hours, minute=minutes),
@@ -591,47 +585,63 @@ async def back_to_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("🏠 Главное меню", reply_markup=reply_markup)
 
 # === Запуск бота ===
-async def main():
-    await init_db()
+def main():
+    """Синхронная точка входа для Railway"""
+    import asyncio
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    async def run_bot():
+        await init_db()
 
-    # Восстанавливаем напоминания при запуске
-    conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.fetch("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
-    await conn.close()
+        app = Application.builder().token(BOT_TOKEN).build()
 
-    for user_id, time_str in rows:
-        if not time_str:
-            continue
-        try:
-            hours, minutes = map(int, time_str.split(":"))
-            app.job_queue.run_daily(
-                send_daily_reminder,
-                time=datetime_time(hour=hours, minute=minutes),
-                data={"user_id": user_id},
-                name=f"reminder_{user_id}"
-            )
-        except Exception as e:
-            logger.warning(f"Не удалось восстановить напоминание для {user_id}: {e}")
+        # Восстанавливаем напоминания при запуске
+        conn = await asyncpg.connect(DATABASE_URL)
+        rows = await conn.fetch("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
+        await conn.close()
 
-    # Обработчики
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CallbackQueryHandler(choose_marathon, pattern="^choose_marathon$"))
-    app.add_handler(CallbackQueryHandler(select_marathon, pattern="^marathon_"))
-    app.add_handler(CallbackQueryHandler(get_daily_task, pattern="^get_task$"))
-    app.add_handler(CallbackQueryHandler(task_completed, pattern="^task_completed$"))
-    app.add_handler(CallbackQueryHandler(my_progress, pattern="^my_progress$"))
-    app.add_handler(CallbackQueryHandler(help_command, pattern="^help$"))
-    app.add_handler(CallbackQueryHandler(back_to_start, pattern="^back_to_start$"))
-    app.add_handler(CallbackQueryHandler(set_reminder, pattern="^set_reminder$"))
-    app.add_handler(CallbackQueryHandler(request_custom_time, pattern="^remind_custom$"))
-    app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_(?!custom|off)"))
-    app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_off$"))
-    app.add_handler(MessageHandler(filters.Regex(r"^\d{1,2}:\d{2}$"), handle_custom_time_input))
+        for user_id, time_str in rows:
+            if not time_str:
+                continue
+            try:
+                hours, minutes = map(int, time_str.split(":"))
+                app.job_queue.run_daily(
+                    send_daily_reminder,
+                    time=datetime_time(hour=hours, minute=minutes),
+                    data={"user_id": user_id},
+                    name=f"reminder_{user_id}"
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось восстановить напоминание для {user_id}: {e}")
 
-    logger.info("🚀 Бот запущен и начинает polling...")
-    await app.run_polling()
+        # Обработчики
+        app.add_handler(CommandHandler("start", start_command))
+        app.add_handler(CallbackQueryHandler(choose_marathon, pattern="^choose_marathon$"))
+        app.add_handler(CallbackQueryHandler(select_marathon, pattern="^marathon_"))
+        app.add_handler(CallbackQueryHandler(get_daily_task, pattern="^get_task$"))
+        app.add_handler(CallbackQueryHandler(task_completed, pattern="^task_completed$"))
+        app.add_handler(CallbackQueryHandler(my_progress, pattern="^my_progress$"))
+        app.add_handler(CallbackQueryHandler(help_command, pattern="^help$"))
+        app.add_handler(CallbackQueryHandler(back_to_start, pattern="^back_to_start$"))
+        app.add_handler(CallbackQueryHandler(set_reminder, pattern="^set_reminder$"))
+        app.add_handler(CallbackQueryHandler(request_custom_time, pattern="^remind_custom$"))
+        app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_(?!custom|off)"))
+        app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_off$"))
+        app.add_handler(MessageHandler(filters.Regex(r"^\d{1,2}:\d{2}$"), handle_custom_time_input))
+
+        logger.info("🚀 Бот запущен и начинает polling...")
+        await app.run_polling()
+
+    # Управление event loop
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if loop.is_running():
+        loop.create_task(run_bot())
+    else:
+        loop.run_until_complete(run_bot())
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
