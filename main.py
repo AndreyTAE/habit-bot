@@ -629,18 +629,25 @@ def main():
         app.add_handler(MessageHandler(filters.Regex(r"^\d{1,2}:\d{2}$"), handle_custom_time_input))
 
         logger.info("🚀 Бот запущен и начинает polling...")
-        await app.run_polling()
+        try:
+            await app.run_polling(poll_interval=2.0, drop_pending_updates=False)
+        except Exception as e:
+            logger.error(f"Ошибка при polling: {e}")
 
-    # Управление event loop
+    # === Ключевое исправление: не закрываем loop! ===
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # Если loop уже запущен (на Railway) — добавляем задачу
+            loop.create_task(run_bot())
+            logger.info("✅ Задача бота добавлена в уже запущенный event loop")
+        else:
+            # Если loop есть, но не запущен — запускаем
+            loop.run_until_complete(run_bot())
     except RuntimeError:
+        # Нет loop — создаём свой
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-    if loop.is_running():
-        loop.create_task(run_bot())
-    else:
         loop.run_until_complete(run_bot())
 
 if __name__ == '__main__':
