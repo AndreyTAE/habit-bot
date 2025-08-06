@@ -592,6 +592,7 @@ def main():
     async def run_bot():
         await init_db()
 
+        # Создаём приложение
         app = Application.builder().token(BOT_TOKEN).build()
 
         # Восстанавливаем напоминания при запуске
@@ -604,16 +605,22 @@ def main():
                 continue
             try:
                 hours, minutes = map(int, time_str.split(":"))
+                job_name = f"reminder_{user_id}"
+                # Удаляем старое напоминание, если было
+                current_jobs = app.job_queue.get_jobs_by_name(job_name)
+                for job in current_jobs:
+                    job.schedule_removal()
+                # Устанавливаем новое
                 app.job_queue.run_daily(
                     send_daily_reminder,
                     time=datetime_time(hour=hours, minute=minutes),
                     data={"user_id": user_id},
-                    name=f"reminder_{user_id}"
+                    name=job_name
                 )
             except Exception as e:
                 logger.warning(f"Не удалось восстановить напоминание для {user_id}: {e}")
 
-        # Обработчики
+        # Добавляем обработчики
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CallbackQueryHandler(choose_marathon, pattern="^choose_marathon$"))
         app.add_handler(CallbackQueryHandler(select_marathon, pattern="^marathon_"))
@@ -630,26 +637,22 @@ def main():
 
         logger.info("🚀 Бот запущен и начинает polling...")
 
-        # === КЛЮЧ: запускаем polling вручную, без run_polling() ===
+        # === Запускаем приложение вручную ===
         try:
-            # Инициализируем приложение
             await app.initialize()
-            # Начинаем polling
             await app.start()
-            # Запускаем polling в бесконечном цикле
             await app.updater.start_polling(
                 poll_interval=2.0,
                 drop_pending_updates=False,
                 allowed_updates=Update.ALL_TYPES
             )
-            # Ждём, пока бот работает (никогда не завершаем)
+            # Ждём завершения (никогда не завершаем)
             await asyncio.Event().wait()
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error(f"Ошибка при запуске: {e}")
         finally:
-            # Не закрываем loop! Только останавливаем приложение
             await app.updater.stop()
             await app.stop()
 
