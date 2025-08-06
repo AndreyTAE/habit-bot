@@ -3,19 +3,14 @@
 # Запускается на Railway.app с PostgreSQL
 # Использует asyncpg, python-telegram-bot v20.3
 
-import logging
 import os
 import asyncio
+import logging
 import re
+import asyncpg  # ✅ Добавьте эту строку!
 from datetime import datetime, time as datetime_time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 )
 
 # === Настройки ===
