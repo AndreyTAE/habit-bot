@@ -11,7 +11,7 @@ import asyncpg  # ✅ Добавьте эту строку!
 from datetime import datetime, time as datetime_time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-)
+
 
 # === Настройки ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
