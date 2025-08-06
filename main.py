@@ -22,8 +22,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # === Токен и URL базы из переменных окружения ===
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")
+BOT_TOKEN = os.getenv("B8452366284:AAG9YOhS8mdibwfZ0lV8T-15FK0qAK7yqYg")
+DATABASE_URL = os.getenv("postgresql://${{PGUSER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_PRIVATE_DOMAIN}}:5432/${{PGDATABASE}}")
 
 # === Инициализация базы данных ===
 async def init_db():
