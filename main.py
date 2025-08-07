@@ -306,11 +306,7 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     user_id = job.data["user_id"]
-    
-    # Получаем текущее время в нужном часовом поясе
-    tz = pytz.timezone(TIMEZONE)
-    now = datetime.now(tz)
-    
+    logger.info(f"⏰ Запуск напоминания для пользователя {user_id}")  # <-- Добавлено
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         row = await conn.fetchrow('''
@@ -318,10 +314,13 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
         ''', user_id)
         await conn.close()
         if not row or not row['current_marathon']:
+            logger.info(f"❌ Нет данных о марафоне для {user_id}")
             return
-        today = now.strftime('%Y-%m-%d')
+        today = datetime.now().strftime('%Y-%m-%d')
         if row['last_task_date'] == today:
+            logger.info(f"✅ Пользователь {user_id} уже выполнил задание сегодня")
             return  # Уже выполнил
+        logger.info(f"✅ Отправка напоминания пользователю {user_id}")
         await context.bot.send_message(
             chat_id=user_id,
             text=(
