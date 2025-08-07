@@ -97,8 +97,7 @@ async def select_marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении марафона: {e}")
     await query.edit_message_text(
-        f"🎉 Отлично! Ты начал марафон: **{marathon}**
-"
+        f"🎉 Отлично! Ты начал марафон: {marathon}\n"
         f"День 1/30 — вперёд к цели!",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
@@ -124,9 +123,7 @@ async def get_daily_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     task = f"Выполни 10 минут {row['current_marathon'].lower()} сегодня!"
     await query.edit_message_text(
-        f"🎯 *Задание на день {row['marathon_day']}*:
-{task}
-Удачи!",
+        f"🎯 *Задание на день {row['marathon_day']}*:\n{task}\nУдачи!",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Выполнено", callback_data="task_completed")
@@ -174,8 +171,7 @@ async def my_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not row or not row['current_marathon']:
         text = "Ты ещё не начал ни один марафон."
     else:
-        text = f"🎯 Ты проходишь марафон: *{row['current_marathon']}*
-📅 День: {row['marathon_day']}/30"
+        text = f"🎯 Ты проходишь марафон: *{row['current_marathon']}*\n📅 День: {row['marathon_day']}/30"
     await query.edit_message_text(
         text,
         parse_mode="Markdown",
@@ -322,14 +318,10 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=user_id,
             text=(
-                f"⏰ *Напоминание!*
-"
-                f"Не забудь сегодняшнее задание:
-"
-                f"🎯 **{row['current_marathon']}**
-"
-                f"📅 День {row['marathon_day']}/30
-"
+                f"⏰ *Напоминание!*\n"
+                f"Не забудь сегодняшнее задание:\n"
+                f"🎯 **{row['current_marathon']}**\n"
+                f"📅 День {row['marathon_day']}/30\n"
                 f"Нажми, чтобы посмотреть!"
             ),
             reply_markup=InlineKeyboardMarkup([[
@@ -357,16 +349,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "ℹ️ Помощь:
-"
-        "• /start — начать
-"
-        "• Нажми на кнопки, чтобы выбрать марафон и получать задания
-"
-        "• Установи напоминание, чтобы не забывать
-"
-        "• Отмечай выполнение заданий
-"
+        "ℹ️ Помощь:\n"
+        "• /start — начать\n"
+        "• Нажми на кнопки, чтобы выбрать марафон и получать задания\n"
+        "• Установи напоминание, чтобы не забывать\n"
+        "• Отмечай выполнение заданий\n"
         "• Прогресс сохраняется в базе данных",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")
