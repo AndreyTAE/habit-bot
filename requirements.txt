@@ -1,2 +1,3 @@
-python-telegram-bot==20.03
+python-telegram-bot==20.9
 asyncpg
+python-dotenv
