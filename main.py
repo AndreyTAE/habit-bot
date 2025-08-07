@@ -246,7 +246,7 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
         await conn.execute("UPDATE users SET reminder_time = $1 WHERE user_id = $2", time_str, user_id)
         await conn.close()
     except Exception as e:
-        logger.error(f"❌ Ошибка сохранения времени: {e}")
+        logger.error(f"❌ Ошибка сохранения времени напоминания: {e}")
 
     await update.message.reply_text(
         f"✅ Напоминание установлено на **{time_str}**! ⏰",
@@ -376,6 +376,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def run_bot():
     await init_db()
 
+    # ✅ Создаём Application ДО использования job_queue
     app = Application.builder().token(BOT_TOKEN).build()
 
     # Восстановление напоминаний из базы
@@ -423,7 +424,7 @@ async def run_bot():
     await app.start()
     await app.updater.start_polling(
         poll_interval=2.0,
-        drop_pending_updates=False,
+        drop_pending_updates=True,  # ✅ Важно: убирает конфликт после перезапуска
         allowed_updates=Update.ALL_TYPES
     )
     await asyncio.Event().wait()  # Бесконечное ожидание
