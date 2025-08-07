@@ -3,6 +3,7 @@ import os
 import asyncio
 import asyncpg
 from datetime import datetime, time as datetime_time
+import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 # === Переменные окружения ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow")  # По умолчанию Москва
 if not BOT_TOKEN:
     raise RuntimeError("❌ Переменная окружения BOT_TOKEN не установлена.")
 if not DATABASE_URL:
@@ -222,7 +224,7 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
     
-    # Устанавливаем новое напоминание
+    # Устанавливаем новое напоминание с учетом часового пояса
     context.job_queue.run_daily(
         send_daily_reminder,
         time=datetime_time(hour=hours, minute=minutes),
@@ -304,6 +306,11 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     user_id = job.data["user_id"]
+    
+    # Получаем текущее время в нужном часовом поясе
+    tz = pytz.timezone(TIMEZONE)
+    now = datetime.now(tz)
+    
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         row = await conn.fetchrow('''
@@ -312,7 +319,7 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
         await conn.close()
         if not row or not row['current_marathon']:
             return
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = now.strftime('%Y-%m-%d')
         if row['last_task_date'] == today:
             return  # Уже выполнил
         await context.bot.send_message(
