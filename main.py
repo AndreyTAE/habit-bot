@@ -11,6 +11,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
+    JobQueue,
 )
 import logging
 
@@ -89,7 +90,6 @@ async def select_marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = update.effective_user.id
     marathon = query.data.replace("marathon_", "").replace("_", " ").title()
-
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         await conn.execute('''
@@ -114,7 +114,6 @@ async def get_daily_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         row = await conn.fetchrow("SELECT current_marathon, marathon_day FROM users WHERE user_id = $1", user_id)
@@ -142,7 +141,6 @@ async def task_completed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         row = await conn.fetchrow("SELECT marathon_day FROM users WHERE user_id = $1", user_id)
@@ -168,7 +166,6 @@ async def my_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         row = await conn.fetchrow("SELECT current_marathon, marathon_day FROM users WHERE user_id = $1", user_id)
@@ -215,6 +212,7 @@ async def request_custom_time(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     time_str = update.message.text.strip()
+
     try:
         hours, minutes = map(int, time_str.split(":"))
         if not (0 <= hours < 24 and 0 <= minutes < 60):
@@ -224,13 +222,11 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
         return
 
     job_name = f"reminder_{user_id}"
-    if context.job_queue is None:
-        await update.message.reply_text("❌ Ошибка: система напоминаний недоступна.")
-        return
 
     # Удаляем старое напоминание
-    for job in context.job_queue.get_jobs_by_name(job_name):
-        job.schedule_removal()
+    if context.job_queue:
+        for job in context.job_queue.get_jobs_by_name(job_name):
+            job.schedule_removal()
 
     # Устанавливаем новое
     context.job_queue.run_daily(
@@ -263,11 +259,13 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     data = query.data
 
-    if context.job_queue is None:
+    if not context.job_queue:
         await query.edit_message_text("❌ Ошибка: система напоминаний временно недоступна.")
         return
 
     job_name = f"reminder_{user_id}"
+
+    # Удаляем старое
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
 
@@ -279,7 +277,7 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"❌ Ошибка отключения напоминания: {e}")
         await query.edit_message_text(
-            "🔕 Напоминания отключены.",
+            "🔔 Напоминания отключены.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")
             ]])
@@ -306,7 +304,7 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     except Exception as e:
-        logger.error(f"Ошибка при установке напоминания: {e}")
+        logger.error(f"❌ Ошибка при установке напоминания: {e}")
         await query.edit_message_text("❌ Не удалось установить напоминание.")
 
 # === Ежедневное напоминание ===
@@ -342,7 +340,7 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     except Exception as e:
-        logger.warning(f"Ошибка отправки напоминания {user_id}: {e}")
+        logger.warning(f"❌ Ошибка отправки напоминания {user_id}: {e}")
 
 # === Назад в меню ===
 async def back_to_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -376,7 +374,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def run_bot():
     await init_db()
 
-    # ✅ Создаём Application ДО использования job_queue
+    # Создаём Application
     app = Application.builder().token(BOT_TOKEN).build()
 
     # Восстановление напоминаний из базы
@@ -385,21 +383,33 @@ async def run_bot():
         rows = await conn.fetch("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
         await conn.close()
 
+        # Временные задачи
+        jobs_to_schedule = []
+
         for user_id, time_str in rows:
             if not time_str:
                 continue
             try:
                 hours, minutes = map(int, time_str.split(":"))
-                job_name = f"reminder_{user_id}"
-                app.job_queue.run_daily(
-                    send_daily_reminder,
-                    time=datetime_time(hour=hours, minute=minutes),
-                    data={"user_id": user_id},
-                    name=job_name
-                )
-                logger.info(f"✅ Напоминание восстановлено для {user_id} на {time_str}")
+                jobs_to_schedule.append((user_id, hours, minutes, time_str))
             except Exception as e:
-                logger.warning(f"❌ Не удалось восстановить напоминание: {e}")
+                logger.warning(f"❌ Некорректное время в БД для {user_id}: {e}")
+
+        # Теперь, когда JobQueue инициализирована
+        await app.initialize()
+        await app.start()
+
+        # Добавляем задачи
+        for user_id, hours, minutes, time_str in jobs_to_schedule:
+            job_name = f"reminder_{user_id}"
+            app.job_queue.run_daily(
+                send_daily_reminder,
+                time=datetime_time(hour=hours, minute=minutes),
+                data={"user_id": user_id},
+                name=job_name
+            )
+            logger.info(f"✅ Напоминание восстановлено для {user_id} на {time_str}")
+
     except Exception as e:
         logger.error(f"❌ Ошибка при восстановлении напоминаний: {e}")
 
@@ -415,18 +425,18 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(set_reminder, pattern="^set_reminder$"))
     app.add_handler(CallbackQueryHandler(request_custom_time, pattern="^remind_custom$"))
     app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_off$"))
-    app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_(?!custom|off)"))
+    app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_(?!custom|off)\\d"))
     app.add_handler(MessageHandler(filters.Regex(r"^\d{1,2}:\d{2}$"), handle_custom_time_input))
 
     logger.info("🚀 Бот запущен и начинает polling...")
 
-    await app.initialize()
-    await app.start()
+    # Запуск polling
     await app.updater.start_polling(
         poll_interval=2.0,
-        drop_pending_updates=True,  # ✅ Важно: убирает конфликт после перезапуска
+        drop_pending_updates=True,  # Ключевое: убирает конфликт при перезапуске
         allowed_updates=Update.ALL_TYPES
     )
+
     await asyncio.Event().wait()  # Бесконечное ожидание
 
 # === Точка входа ===
