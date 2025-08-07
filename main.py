@@ -12,7 +12,6 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-
 import logging
 
 # === Настройка логирования ===
@@ -27,14 +26,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not BOT_TOKEN:
-    raise RuntimeError("❌ BOT_TOKEN не установлен. Зайдите в Railway → Variables")
+    raise RuntimeError("❌ Переменная окружения BOT_TOKEN не установлена. Зайдите в Railway → Variables")
 if not DATABASE_URL:
-    raise RuntimeError("❌ DATABASE_URL не установлен. Должен быть от PostgreSQL")
+    raise RuntimeError("❌ Переменная окружения DATABASE_URL не установлена.")
 
 # === Инициализация базы данных ===
 async def init_db():
     try:
-        logger.info("🔧 Попытка подключения к базе данных...")
         conn = await asyncpg.connect(DATABASE_URL)
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
@@ -226,33 +224,37 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
         return
 
     job_name = f"reminder_{user_id}"
-    if context.job_queue:
-        for job in context.job_queue.get_jobs_by_name(job_name):
-            job.schedule_removal()
-
-        context.job_queue.run_daily(
-            send_daily_reminder,
-            time=datetime_time(hour=hours, minute=minutes),
-            data={"user_id": user_id},
-            name=job_name
-        )
-
-        try:
-            conn = await asyncpg.connect(DATABASE_URL)
-            await conn.execute("UPDATE users SET reminder_time = $1 WHERE user_id = $2", time_str, user_id)
-            await conn.close()
-        except Exception as e:
-            logger.error(f"❌ Ошибка сохранения времени напоминания: {e}")
-
-        await update.message.reply_text(
-            f"✅ Напоминание установлено на **{time_str}**! ⏰",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")
-            ]]),
-            parse_mode="Markdown"
-        )
-    else:
+    if context.job_queue is None:
         await update.message.reply_text("❌ Ошибка: система напоминаний недоступна.")
+        return
+
+    # Удаляем старое напоминание
+    for job in context.job_queue.get_jobs_by_name(job_name):
+        job.schedule_removal()
+
+    # Устанавливаем новое
+    context.job_queue.run_daily(
+        send_daily_reminder,
+        time=datetime_time(hour=hours, minute=minutes),
+        data={"user_id": user_id},
+        name=job_name
+    )
+
+    # Сохраняем в базу
+    try:
+        conn = await asyncpg.connect(DATABASE_URL)
+        await conn.execute("UPDATE users SET reminder_time = $1 WHERE user_id = $2", time_str, user_id)
+        await conn.close()
+    except Exception as e:
+        logger.error(f"❌ Ошибка сохранения времени: {e}")
+
+    await update.message.reply_text(
+        f"✅ Напоминание установлено на **{time_str}**! ⏰",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")
+        ]]),
+        parse_mode="Markdown"
+    )
 
 # === Сохранение напоминания ===
 async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -276,7 +278,6 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await conn.close()
         except Exception as e:
             logger.error(f"❌ Ошибка отключения напоминания: {e}")
-
         await query.edit_message_text(
             "🔕 Напоминания отключены.",
             reply_markup=InlineKeyboardMarkup([[
@@ -397,7 +398,7 @@ async def run_bot():
                 )
                 logger.info(f"✅ Напоминание восстановлено для {user_id} на {time_str}")
             except Exception as e:
-                logger.warning(f"❌ Не удалось восстановить напоминание для {user_id}: {e}")
+                logger.warning(f"❌ Не удалось восстановить напоминание: {e}")
     except Exception as e:
         logger.error(f"❌ Ошибка при восстановлении напоминаний: {e}")
 
@@ -425,7 +426,7 @@ async def run_bot():
         drop_pending_updates=False,
         allowed_updates=Update.ALL_TYPES
     )
-    await asyncio.Event().wait()
+    await asyncio.Event().wait()  # Бесконечное ожидание
 
 # === Точка входа ===
 if __name__ == '__main__':
