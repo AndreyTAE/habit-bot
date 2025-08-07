@@ -374,11 +374,11 @@ async def run_bot():
     # Создаём Application
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # === ВАЖНО: сначала initialize, потом использовать job_queue
+    # === 🔥 СНАЧАЛА initialize(), ЧТОБЫ job_queue СУЩЕСТВОВАЛА ===
     await app.initialize()
     await app.start()
 
-    # Восстановление напоминаний из базы
+    # === Восстановление напоминаний из базы ===
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         rows = await conn.fetch("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
@@ -402,7 +402,7 @@ async def run_bot():
     except Exception as e:
         logger.error(f"❌ Ошибка при восстановлении напоминаний: {e}")
 
-    # Обработчики
+    # === Обработчики ===
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(choose_marathon, pattern="^choose_marathon$"))
     app.add_handler(CallbackQueryHandler(select_marathon, pattern="^marathon_"))
@@ -419,14 +419,14 @@ async def run_bot():
 
     logger.info("🚀 Бот запущен и начинает polling...")
 
-    # Запуск polling
+    # === Запуск polling ===
     await app.updater.start_polling(
         poll_interval=2.0,
-        drop_pending_updates=True,  # 🔥 Убирает конфликт после перезапуска
+        drop_pending_updates=True,
         allowed_updates=Update.ALL_TYPES
     )
 
-    await asyncio.Event().wait()  # Бесконечное ожидание
+    await asyncio.Event().wait()  # Бесконечно ждём
 
 # === Точка входа ===
 if __name__ == '__main__':
