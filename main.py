@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # === Переменные окружения ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
-TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow")  # По умолчанию Москва
+TIMEZONE = os.getenv("TIMEZONE", "Asia/Novosibirsk")  # По умолчанию Новосибирск
 if not BOT_TOKEN:
     raise RuntimeError("❌ Переменная окружения BOT_TOKEN не установлена.")
 if not DATABASE_URL:
