@@ -11,7 +11,6 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
-    JobQueue,
 )
 import logging
 
@@ -27,7 +26,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not BOT_TOKEN:
-    raise RuntimeError("❌ Переменная окружения BOT_TOKEN не установлена. Зайдите в Railway → Variables")
+    raise RuntimeError("❌ Переменная окружения BOT_TOKEN не установлена.")
 if not DATABASE_URL:
     raise RuntimeError("❌ Переменная окружения DATABASE_URL не установлена.")
 
@@ -264,8 +263,6 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     job_name = f"reminder_{user_id}"
-
-    # Удаляем старое
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
 
@@ -377,39 +374,31 @@ async def run_bot():
     # Создаём Application
     app = Application.builder().token(BOT_TOKEN).build()
 
+    # === ВАЖНО: сначала initialize, потом использовать job_queue
+    await app.initialize()
+    await app.start()
+
     # Восстановление напоминаний из базы
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         rows = await conn.fetch("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
         await conn.close()
 
-        # Временные задачи
-        jobs_to_schedule = []
-
         for user_id, time_str in rows:
             if not time_str:
                 continue
             try:
                 hours, minutes = map(int, time_str.split(":"))
-                jobs_to_schedule.append((user_id, hours, minutes, time_str))
+                job_name = f"reminder_{user_id}"
+                app.job_queue.run_daily(
+                    send_daily_reminder,
+                    time=datetime_time(hour=hours, minute=minutes),
+                    data={"user_id": user_id},
+                    name=job_name
+                )
+                logger.info(f"✅ Напоминание восстановлено для {user_id} на {time_str}")
             except Exception as e:
-                logger.warning(f"❌ Некорректное время в БД для {user_id}: {e}")
-
-        # Теперь, когда JobQueue инициализирована
-        await app.initialize()
-        await app.start()
-
-        # Добавляем задачи
-        for user_id, hours, minutes, time_str in jobs_to_schedule:
-            job_name = f"reminder_{user_id}"
-            app.job_queue.run_daily(
-                send_daily_reminder,
-                time=datetime_time(hour=hours, minute=minutes),
-                data={"user_id": user_id},
-                name=job_name
-            )
-            logger.info(f"✅ Напоминание восстановлено для {user_id} на {time_str}")
-
+                logger.warning(f"❌ Не удалось восстановить напоминание: {e}")
     except Exception as e:
         logger.error(f"❌ Ошибка при восстановлении напоминаний: {e}")
 
@@ -425,7 +414,7 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(set_reminder, pattern="^set_reminder$"))
     app.add_handler(CallbackQueryHandler(request_custom_time, pattern="^remind_custom$"))
     app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_off$"))
-    app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_(?!custom|off)\\d"))
+    app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_\\d"))
     app.add_handler(MessageHandler(filters.Regex(r"^\d{1,2}:\d{2}$"), handle_custom_time_input))
 
     logger.info("🚀 Бот запущен и начинает polling...")
@@ -433,7 +422,7 @@ async def run_bot():
     # Запуск polling
     await app.updater.start_polling(
         poll_interval=2.0,
-        drop_pending_updates=True,  # Ключевое: убирает конфликт при перезапуске
+        drop_pending_updates=True,  # 🔥 Убирает конфликт после перезапуска
         allowed_updates=Update.ALL_TYPES
     )
 
