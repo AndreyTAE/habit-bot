@@ -12,7 +12,6 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-
 import logging
 
 # === Настройка логирования ===
@@ -25,7 +24,6 @@ logger = logging.getLogger(__name__)
 # === Переменные окружения ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
-
 if not BOT_TOKEN:
     raise RuntimeError("❌ Переменная окружения BOT_TOKEN не установлена.")
 if not DATABASE_URL:
@@ -61,7 +59,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await conn.close()
     except Exception as e:
         logger.error(f"❌ Ошибка при работе с БД: {e}")
-
     keyboard = [
         [InlineKeyboardButton("🏃‍♂️ Выбрать марафон", callback_data="choose_marathon")],
         [InlineKeyboardButton("📈 Мой прогресс", callback_data="my_progress")],
@@ -99,9 +96,9 @@ async def select_marathon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await conn.close()
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении марафона: {e}")
-
     await query.edit_message_text(
-        f"🎉 Отлично! Ты начал марафон: **{marathon}**\n"
+        f"🎉 Отлично! Ты начал марафон: **{marathon}**
+"
         f"День 1/30 — вперёд к цели!",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
@@ -122,14 +119,14 @@ async def get_daily_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Ошибка при получении данных: {e}")
         await query.edit_message_text("⚠️ Не удалось получить данные. Попробуйте позже.")
         return
-
     if not row or not row['current_marathon']:
         await query.edit_message_text("Сначала выбери марафон!")
         return
-
     task = f"Выполни 10 минут {row['current_marathon'].lower()} сегодня!"
     await query.edit_message_text(
-        f"🎯 *Задание на день {row['marathon_day']}*:\n{task}\nУдачи!",
+        f"🎯 *Задание на день {row['marathon_day']}*:
+{task}
+Удачи!",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("✅ Выполнено", callback_data="task_completed")
@@ -174,12 +171,11 @@ async def my_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Ошибка при получении прогресса: {e}")
         await query.edit_message_text("⚠️ Ошибка загрузки прогресса.")
         return
-
     if not row or not row['current_marathon']:
         text = "Ты ещё не начал ни один марафон."
     else:
-        text = f"🎯 Ты проходишь марафон: *{row['current_marathon']}*\n📅 День: {row['marathon_day']}/30"
-
+        text = f"🎯 Ты проходишь марафон: *{row['current_marathon']}*
+📅 День: {row['marathon_day']}/30"
     await query.edit_message_text(
         text,
         parse_mode="Markdown",
@@ -212,7 +208,6 @@ async def request_custom_time(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     time_str = update.message.text.strip()
-
     try:
         hours, minutes = map(int, time_str.split(":"))
         if not (0 <= hours < 24 and 0 <= minutes < 60):
@@ -220,29 +215,32 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
     except ValueError:
         await update.message.reply_text("❌ Неверный формат. Используй ЧЧ:ММ (например, 18:30)")
         return
-
+    
+    # Проверяем, что job_queue доступен
     if context.job_queue is None:
         await update.message.reply_text("❌ Ошибка: система напоминаний временно недоступна.")
         return
-
+    
     job_name = f"reminder_{user_id}"
+    # Удаляем старое напоминание
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
-
+    
+    # Устанавливаем новое напоминание
     context.job_queue.run_daily(
         send_daily_reminder,
         time=datetime_time(hour=hours, minute=minutes),
         data={"user_id": user_id},
         name=job_name
     )
-
+    
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         await conn.execute("UPDATE users SET reminder_time = $1 WHERE user_id = $2", time_str, user_id)
         await conn.close()
     except Exception as e:
         logger.error(f"❌ Ошибка сохранения времени напоминания: {e}")
-
+    
     await update.message.reply_text(
         f"✅ Напоминание установлено на **{time_str}**! ⏰",
         reply_markup=InlineKeyboardMarkup([[
@@ -257,15 +255,17 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = update.effective_user.id
     data = query.data
-
+    
+    # Проверяем, что job_queue доступен
     if context.job_queue is None:
         await query.edit_message_text("❌ Ошибка: система напоминаний временно недоступна.")
         return
-
+    
     job_name = f"reminder_{user_id}"
+    # Удаляем старое напоминание
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
-
+    
     if data == "remind_off":
         try:
             conn = await asyncpg.connect(DATABASE_URL)
@@ -280,7 +280,7 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]])
         )
         return
-
+    
     time_str = data.replace("remind_", "")
     try:
         hours, minutes = map(int, time_str.split(":"))
@@ -314,21 +314,22 @@ async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
             SELECT current_marathon, marathon_day, last_task_date FROM users WHERE user_id = $1
         ''', user_id)
         await conn.close()
-
         if not row or not row['current_marathon']:
             return
-
         today = datetime.now().strftime('%Y-%m-%d')
         if row['last_task_date'] == today:
             return  # Уже выполнил
-
         await context.bot.send_message(
             chat_id=user_id,
             text=(
-                f"⏰ *Напоминание!*\n"
-                f"Не забудь сегодняшнее задание:\n"
-                f"🎯 **{row['current_marathon']}**\n"
-                f"📅 День {row['marathon_day']}/30\n"
+                f"⏰ *Напоминание!*
+"
+                f"Не забудь сегодняшнее задание:
+"
+                f"🎯 **{row['current_marathon']}**
+"
+                f"📅 День {row['marathon_day']}/30
+"
                 f"Нажми, чтобы посмотреть!"
             ),
             reply_markup=InlineKeyboardMarkup([[
@@ -356,11 +357,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "ℹ️ Помощь:\n"
-        "• /start — начать\n"
-        "• Нажми на кнопки, чтобы выбрать марафон и получать задания\n"
-        "• Установи напоминание, чтобы не забывать\n"
-        "• Отмечай выполнение заданий\n"
+        "ℹ️ Помощь:
+"
+        "• /start — начать
+"
+        "• Нажми на кнопки, чтобы выбрать марафон и получать задания
+"
+        "• Установи напоминание, чтобы не забывать
+"
+        "• Отмечай выполнение заданий
+"
         "• Прогресс сохраняется в базе данных",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")
@@ -370,20 +376,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # === Запуск бота ===
 async def run_bot():
     await init_db()
-
     # Создаём Application
     app = Application.builder().token(BOT_TOKEN).build()
-
+    
     # === 🔥 СНАЧАЛА initialize() и start() ===
     await app.initialize()
     await app.start()
-
+    
     # === Восстановление напоминаний из базы ===
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         rows = await conn.fetch("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
         await conn.close()
-
         for user_id, time_str in rows:
             if not time_str:
                 continue
@@ -401,7 +405,7 @@ async def run_bot():
                 logger.warning(f"❌ Не удалось восстановить напоминание: {e}")
     except Exception as e:
         logger.error(f"❌ Ошибка при восстановлении напоминаний: {e}")
-
+    
     # === Обработчики ===
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(choose_marathon, pattern="^choose_marathon$"))
@@ -416,16 +420,14 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_off$"))
     app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_\\d{1,2}:\\d{2}$"))
     app.add_handler(MessageHandler(filters.Regex(r"^\d{1,2}:\d{2}$"), handle_custom_time_input))
-
+    
     logger.info("🚀 Бот запущен и начинает polling...")
-
     # Запуск polling
     await app.updater.start_polling(
         poll_interval=2.0,
         drop_pending_updates=True,
         allowed_updates=Update.ALL_TYPES
     )
-
     await asyncio.Event().wait()  # Бесконечно ждём
 
 # === Точка входа ===
