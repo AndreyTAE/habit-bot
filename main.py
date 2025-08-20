@@ -224,13 +224,16 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
     
-    # Устанавливаем новое напоминание с учетом часового пояса
-    context.job_queue.run_daily(
-        send_daily_reminder,
-        time=datetime_time(hour=hours, minute=minutes),
-        data={"user_id": user_id},
-        name=job_name
-    )
+    # Устанавливаем таймзону явно
+nsk_tz = pytz.timezone("Asia/Novosibirsk")
+scheduled_time = datetime_time(hour=hours, minute=minutes, tzinfo=nsk_tz)
+
+context.job_queue.run_daily(
+    send_daily_reminder,
+    time=scheduled_time,
+    data={"user_id": user_id},
+    name=job_name
+)
     
     try:
         conn = await asyncpg.connect(DATABASE_URL)
