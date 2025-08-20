@@ -213,35 +213,33 @@ async def handle_custom_time_input(update: Update, context: ContextTypes.DEFAULT
     except ValueError:
         await update.message.reply_text("❌ Неверный формат. Используй ЧЧ:ММ (например, 18:30)")
         return
-    
-    # Проверяем, что job_queue доступен
+
     if context.job_queue is None:
         await update.message.reply_text("❌ Ошибка: система напоминаний временно недоступна.")
         return
-    
+
     job_name = f"reminder_{user_id}"
-    # Удаляем старое напоминание
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
-    
-    # Устанавливаем таймзону явно
-nsk_tz = pytz.timezone("Asia/Novosibirsk")
-scheduled_time = datetime_time(hour=hours, minute=minutes, tzinfo=nsk_tz)
 
-context.job_queue.run_daily(
-    send_daily_reminder,
-    time=scheduled_time,
-    data={"user_id": user_id},
-    name=job_name
-)
-    
+    # ✅ Устанавливаем таймзону
+    nsk_tz = pytz.timezone("Asia/Novosibirsk")
+    scheduled_time = datetime_time(hour=hours, minute=minutes, tzinfo=nsk_tz)
+
+    context.job_queue.run_daily(
+        send_daily_reminder,
+        time=scheduled_time,
+        data={"user_id": user_id},
+        name=job_name
+    )
+
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         await conn.execute("UPDATE users SET reminder_time = $1 WHERE user_id = $2", time_str, user_id)
         await conn.close()
     except Exception as e:
         logger.error(f"❌ Ошибка сохранения времени напоминания: {e}")
-    
+
     await update.message.reply_text(
         f"✅ Напоминание установлено на **{time_str}**! ⏰",
         reply_markup=InlineKeyboardMarkup([[
@@ -256,17 +254,15 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = update.effective_user.id
     data = query.data
-    
-    # Проверяем, что job_queue доступен
+
     if context.job_queue is None:
         await query.edit_message_text("❌ Ошибка: система напоминаний временно недоступна.")
         return
-    
+
     job_name = f"reminder_{user_id}"
-    # Удаляем старое напоминание
     for job in context.job_queue.get_jobs_by_name(job_name):
         job.schedule_removal()
-    
+
     if data == "remind_off":
         try:
             conn = await asyncpg.connect(DATABASE_URL)
@@ -281,13 +277,18 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]])
         )
         return
-    
+
     time_str = data.replace("remind_", "")
     try:
         hours, minutes = map(int, time_str.split(":"))
+
+        # ✅ Устанавливаем таймзону
+        nsk_tz = pytz.timezone("Asia/Novosibirsk")
+        scheduled_time = datetime_time(hour=hours, minute=minutes, tzinfo=nsk_tz)
+
         context.job_queue.run_daily(
             send_daily_reminder,
-            time=datetime_time(hour=hours, minute=minutes),
+            time=scheduled_time,
             data={"user_id": user_id},
             name=job_name
         )
@@ -305,16 +306,16 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Ошибка при установке напоминания: {e}")
         await query.edit_message_text("❌ Не удалось установить напоминание.")
 
-# # === Ежедневное напоминание ===
+# === Ежедневное напоминание ===
 async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     user_id = job.data["user_id"]
-    
+
     # Принудительно используем Новосибирск
     tz = pytz.timezone("Asia/Novosibirsk")
     now = datetime.now(tz)
     current_time = now.strftime('%H:%M')
-    
+
     logger.info(f"⏰ Напоминание запущено в {current_time} (по Новосибирску) для пользователя {user_id}")
 
     try:
@@ -381,27 +382,32 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # === Запуск бота ===
 async def run_bot():
     await init_db()
-    # Создаём Application
     app = Application.builder().token(BOT_TOKEN).build()
-    
-    # === 🔥 СНАЧАЛА initialize() и start() ===
+
     await app.initialize()
     await app.start()
-    
+
     # === Восстановление напоминаний из базы ===
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         rows = await conn.fetch("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
         await conn.close()
+
+        nsk_tz = pytz.timezone("Asia/Novosibirsk")  # ✅ Таймзона
+
         for user_id, time_str in rows:
             if not time_str:
                 continue
             try:
                 hours, minutes = map(int, time_str.split(":"))
                 job_name = f"reminder_{user_id}"
+
+                # ✅ Время с таймзоной
+                scheduled_time = datetime_time(hour=hours, minute=minutes, tzinfo=nsk_tz)
+
                 app.job_queue.run_daily(
                     send_daily_reminder,
-                    time=datetime_time(hour=hours, minute=minutes),
+                    time=scheduled_time,
                     data={"user_id": user_id},
                     name=job_name
                 )
@@ -410,7 +416,7 @@ async def run_bot():
                 logger.warning(f"❌ Не удалось восстановить напоминание: {e}")
     except Exception as e:
         logger.error(f"❌ Ошибка при восстановлении напоминаний: {e}")
-    
+
     # === Обработчики ===
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CallbackQueryHandler(choose_marathon, pattern="^choose_marathon$"))
@@ -425,15 +431,14 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_off$"))
     app.add_handler(CallbackQueryHandler(save_reminder, pattern="^remind_\\d{1,2}:\\d{2}$"))
     app.add_handler(MessageHandler(filters.Regex(r"^\d{1,2}:\d{2}$"), handle_custom_time_input))
-    
+
     logger.info("🚀 Бот запущен и начинает polling...")
-    # Запуск polling
     await app.updater.start_polling(
         poll_interval=2.0,
         drop_pending_updates=True,
         allowed_updates=Update.ALL_TYPES
     )
-    await asyncio.Event().wait()  # Бесконечно ждём
+    await asyncio.Event().wait()
 
 # === Точка входа ===
 if __name__ == '__main__':
