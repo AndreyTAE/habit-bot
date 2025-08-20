@@ -302,31 +302,34 @@ async def save_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Ошибка при установке напоминания: {e}")
         await query.edit_message_text("❌ Не удалось установить напоминание.")
 
-# === Ежедневное напоминание ===
+# # === Ежедневное напоминание ===
 async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     user_id = job.data["user_id"]
     
-    # Получаем текущее время в нужном часовом поясе
-    tz = pytz.timezone(TIMEZONE)
+    # Принудительно используем Новосибирск
+    tz = pytz.timezone("Asia/Novosibirsk")
     now = datetime.now(tz)
+    current_time = now.strftime('%H:%M')
     
-    logger.info(f"⏰ Запуск напоминания для пользователя {user_id} в {now.strftime('%H:%M')} ({TIMEZONE})")
-    
+    logger.info(f"⏰ Напоминание запущено в {current_time} (по Новосибирску) для пользователя {user_id}")
+
     try:
         conn = await asyncpg.connect(DATABASE_URL)
         row = await conn.fetchrow('''
             SELECT current_marathon, marathon_day, last_task_date FROM users WHERE user_id = $1
         ''', user_id)
         await conn.close()
+
         if not row or not row['current_marathon']:
             logger.info(f"❌ Нет данных о марафоне для {user_id}")
             return
+
         today = now.strftime('%Y-%m-%d')
         if row['last_task_date'] == today:
             logger.info(f"✅ Пользователь {user_id} уже выполнил задание сегодня")
-            return  # Уже выполнил
-        logger.info(f"✅ Отправка напоминания пользователю {user_id}")
+            return
+
         await context.bot.send_message(
             chat_id=user_id,
             text=(
